@@ -19,6 +19,12 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import {
+  addBlacklist,
+  getCriteria,
+  getWatchlist,
+  runScan,
+} from "../modules/scout/index.js";
 
 const server = new Server(
   {
@@ -137,6 +143,40 @@ const tools = [
       required: ["query"],
     },
   },
+  // -------------------------------------------------------------------------
+  // Scout module tools
+  // -------------------------------------------------------------------------
+  {
+    name: "scout_scan_now",
+    description:
+      "Manually trigger Scout to scan all watchlist companies across enabled sources right now. Returns summary of new jobs found and matches above threshold. Normally runs hourly on its own.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "scout_status",
+    description:
+      "Get Scout pipeline status: enabled sources, current criteria, watchlist size, and a snapshot of recent scan activity.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "scout_blacklist",
+    description:
+      "Blacklist a company so Scout never surfaces or applies to their jobs again.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        company: { type: "string" },
+        reason: { type: "string" },
+      },
+      required: ["company"],
+    },
+  },
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -210,10 +250,90 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ],
       };
 
+    // -----------------------------------------------------------------------
+    // Scout
+    // -----------------------------------------------------------------------
+    case "scout_scan_now": {
+      const result = await runScan();
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                startedAt: result.startedAt,
+                finishedAt: result.finishedAt,
+                durationMs: result.finishedAt.getTime() - result.startedAt.getTime(),
+                sourcesScanned: result.sourcesScanned,
+                companiesScanned: result.companiesScanned,
+                jobsSeen: result.jobsSeen,
+                newJobs: result.newJobs,
+                matchCount: result.matches.length,
+                matches: result.matches.map((m) => ({
+                  title: m.job.title,
+                  company: m.job.companyName,
+                  url: m.job.url,
+                  score: m.job.score,
+                  reasons: m.job.reasons,
+                  pickedResume: m.pickedResume,
+                })),
+                errors: result.errors,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+
+    case "scout_status": {
+      const [criteria, watchlist] = await Promise.all([getCriteria(), getWatchlist()]);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                criteria,
+                watchlist: {
+                  total: watchlist.length,
+                  bySource: countBy(watchlist, (w) => w.source),
+                },
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+
+    case "scout_blacklist": {
+      const company = String(args?.company ?? "");
+      const reason = args?.reason != null ? String(args.reason) : undefined;
+      if (!company) throw new Error("company is required");
+      await addBlacklist(company, reason);
+      return {
+        content: [
+          { type: "text", text: `Blacklisted ${company}${reason ? ` (${reason})` : ""}.` },
+        ],
+      };
+    }
+
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
 });
+
+function countBy<T>(items: T[], key: (item: T) => string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const item of items) {
+    const k = key(item);
+    out[k] = (out[k] ?? 0) + 1;
+  }
+  return out;
+}
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
