@@ -1,0 +1,84 @@
+{
+  "mcpServers": {
+    "channels": {
+      "command": "npx",
+      "args": ["-y", "@anthropic/claude-code-channels-mcp"],
+      "env": {
+        "CHANNELS_PROVIDER": "telegram",
+        "TELEGRAM_BOT_TOKEN": "${TELEGRAM_BOT_TOKEN}",
+        "TELEGRAM_ALLOWED_CHAT_IDS": "${TELEGRAM_ALLOWED_CHAT_IDS}"
+      }
+    },
+    "fireflies": {
+      "command": "npx",
+      "args": ["-y", "@fireflies/mcp-server"],
+      "env": {
+        "FIREFLIES_API_KEY": "${FIREFLIES_API_KEY}"
+      }
+    },
+    "gmail": {
+      "command": "npx",
+      "args": ["-y", "@google/gmail-mcp-server"],
+      "env": {
+        "GMAIL_CLIENT_ID": "${GMAIL_CLIENT_ID}",
+        "GMAIL_CLIENT_SECRET": "${GMAIL_CLIENT_SECRET}",
+        "GMAIL_REFRESH_TOKEN": "${GMAIL_REFRESH_TOKEN}"
+      }
+    },
+    "google-calendar": {
+      "command": "npx",
+      "args": ["-y", "@google/calendar-mcp-server"],
+      "env": {
+        "GOOGLE_CALENDAR_CLIENT_ID": "${GOOGLE_CALENDAR_CLIENT_ID}",
+        "GOOGLE_CALENDAR_CLIENT_SECRET": "${GOOGLE_CALENDAR_CLIENT_SECRET}",
+        "GOOGLE_CALENDAR_REFRESH_TOKEN": "${GOOGLE_CALENDAR_REFRESH_TOKEN}"
+      }
+    },
+    "linear": {
+      "command": "npx",
+      "args": ["-y", "@linear/mcp-server"],
+      "env": {
+        "LINEAR_API_KEY": "${LINEAR_API_KEY}"
+      }
+    },
+    "supabase": {
+      "command": "npx",
+      "args": ["-y", "@supabase/mcp-server"],
+      "env": {
+        "SUPABASE_URL": "${SUPABASE_URL}",
+        "SUPABASE_SERVICE_ROLE_KEY": "${SUPABASE_SERVICE_ROLE_KEY}"
+      }
+    },
+    "browserbase": {
+      "command": "npx",
+      "args": ["-y", "@browserbase/mcp-server"],
+      "env": {
+        "BROWSERBASE_API_KEY": "${BROWSERBASE_API_KEY}",
+        "BROWSERBASE_PROJECT_ID": "${BROWSERBASE_PROJECT_ID}"
+      }
+    },
+    "zep": {
+      "command": "npx",
+      "args": ["-y", "@getzep/mcp-server"],
+      "env": {
+        "ZEP_API_KEY": "${ZEP_API_KEY}",
+        "ZEP_USER_ID": "shaun"
+      }
+    },
+    "jarvis": {
+      "command": "bun",
+      "args": ["run", "/app/src/mcp/server.ts"],
+      "env": {
+        "JARVIS_STATE_DIR": "${JARVIS_STATE_DIR}",
+        "SUPABASE_URL": "${SUPABASE_URL}",
+        "SUPABASE_SERVICE_ROLE_KEY": "${SUPABASE_SERVICE_ROLE_KEY}"
+      }
+    }
+  },
+  "_notes": [
+    "Package names like @anthropic/claude-code-channels-mcp, @fireflies/mcp-server, etc. are placeholders representing the expected MCP server packages.",
+    "Replace with the actual published package names during integration setup.",
+    "All ${VAR} references are resolved from environment variables loaded by entry.sh.",
+    "The 'jarvis' entry is this repo's custom MCP server exposing /jarvis-* slash commands."
+  ]
+}

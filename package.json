@@ -1,0 +1,31 @@
+{
+  "name": "jarvis",
+  "version": "0.1.0",
+  "description": "Personal AI assistant for Shaun. Telegram-controlled Claude Code session with episodic memory.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "bun build src/mcp/server.ts --target=node --outdir=dist",
+    "dev": "bun run --watch src/mcp/server.ts",
+    "start": "bun run src/mcp/server.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "hono": "^4.0.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "author": "Shaun Berkley",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shaunberkley/jarvis.git"
+  }
+}
