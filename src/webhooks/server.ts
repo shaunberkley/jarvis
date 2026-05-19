@@ -12,22 +12,29 @@
  */
 
 import { Hono } from "hono";
+import { telegramApp } from "./telegram.js";
+import { handleFirefliesWebhook } from "../modules/meeting/handler.js";
+import { startCron } from "../runtime/cron.js";
 
 const app = new Hono();
 
 app.get("/health", (c) => c.json({ ok: true, service: "jarvis", version: "0.1.0" }));
 
 app.post("/webhooks/fireflies", async (c) => {
-  const signature = c.req.header("x-fireflies-signature");
-  // TODO: verify signature against FIREFLIES_WEBHOOK_SECRET
+  const signature = c.req.header("x-fireflies-signature") ?? undefined;
   const body = await c.req.json();
-
-  // TODO: dispatch to src/modules/meeting/handler.ts
-  // For now, just log and ack so the webhook endpoint is exercisable.
-  console.log("[jarvis] fireflies webhook received:", JSON.stringify(body).slice(0, 500));
-
+  try {
+    await handleFirefliesWebhook(body, signature);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[jarvis] fireflies handler error:", msg);
+    return c.json({ ok: false, error: msg }, 500);
+  }
   return c.json({ ok: true });
 });
+
+// Mount Telegram callback handler
+app.route("/", telegramApp);
 
 app.post("/webhooks/linear", async (c) => {
   const body = await c.req.json();
@@ -38,6 +45,11 @@ app.post("/webhooks/linear", async (c) => {
 const port = Number(process.env.PORT ?? 3000);
 
 console.log(`[jarvis] webhook server listening on :${port}`);
+
+// Boot the in-process scheduler alongside the webhook server.
+if (process.env.JARVIS_CRON !== "off") {
+  startCron();
+}
 
 export default {
   port,

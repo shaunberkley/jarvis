@@ -23,6 +23,7 @@ import {
   setJobScore,
   upsertJob,
 } from "./db.js";
+import { notifyMatches } from "./notifier.js";
 import { isHardSkip, scoreJob } from "./scoring.js";
 import { getAdapter } from "./sources/index.js";
 import type { NewMatchEvent, StoredJob } from "./types.js";
@@ -112,6 +113,17 @@ export async function runScan(): Promise<ScanResult> {
 
   result.sourcesScanned = seenSources.size;
   result.finishedAt = new Date();
+
+  // Send notifications for matches. Failures here don't break the scan.
+  if (result.matches.length > 0 && process.env.JARVIS_NOTIFY !== "off") {
+    try {
+      const { sent, failed } = await notifyMatches(result.matches);
+      await logEvent("scout", "notify_summary", { sent, failed, total: result.matches.length });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      await logEvent("scout", "notify_error", { error: errMsg });
+    }
+  }
 
   await logEvent("scout", "scan_completed", {
     sourcesScanned: result.sourcesScanned,
