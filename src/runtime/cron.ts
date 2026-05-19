@@ -9,6 +9,7 @@
 
 import { runScan } from "../modules/scout/scanner.js";
 import { runInboxPoll } from "../modules/inbox/watcher.js";
+import { runIngestion } from "../modules/memory/index.js";
 import { logEvent } from "../modules/scout/db.js";
 
 interface CronJob {
@@ -19,6 +20,7 @@ interface CronJob {
 
 const SCOUT_INTERVAL_MS = Number(process.env.SCOUT_INTERVAL_MS ?? 60 * 60 * 1000); // 1 hour default
 const INBOX_INTERVAL_MS = Number(process.env.INBOX_INTERVAL_MS ?? 10 * 60 * 1000); // 10 min default
+const ZEP_INTERVAL_MS = Number(process.env.ZEP_INTERVAL_MS ?? 5 * 60 * 1000); // 5 min default
 
 const locks = new Map<string, boolean>();
 
@@ -60,6 +62,16 @@ const jobs: CronJob[] = [
       const result = await runInboxPoll();
       console.log(
         `[cron] inbox_poll: scanned ${result.messagesScanned}, matched ${result.matches.length}, errors ${result.errors.length}`
+      );
+    },
+  },
+  {
+    name: "zep_ingestion",
+    intervalMs: ZEP_INTERVAL_MS,
+    run: async () => {
+      const result = await runIngestion();
+      console.log(
+        `[cron] zep_ingestion: read ${result.eventsRead}, wrote ${result.episodesWritten}, skipped ${result.skipped}, errors ${result.errors.length}`
       );
     },
   },

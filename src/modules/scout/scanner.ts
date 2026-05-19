@@ -24,6 +24,7 @@ import {
   upsertJob,
 } from "./db.js";
 import { notifyMatches } from "./notifier.js";
+import { listAvailableResumes, pickBestResume, type ResumeMeta } from "./resumes.js";
 import { isHardSkip, scoreJob } from "./scoring.js";
 import { getAdapter } from "./sources/index.js";
 import type { NewMatchEvent, StoredJob } from "./types.js";
@@ -58,6 +59,17 @@ export async function runScan(): Promise<ScanResult> {
   };
 
   const [criteria, watchlist] = await Promise.all([getCriteria(), getWatchlist()]);
+
+  // Load the resume catalog once per scan so every match shares the same
+  // snapshot of available variants. Failure to load resumes is non-fatal:
+  // we fall back to the generic main PDF name so notifications still go out.
+  let resumeCatalog: ResumeMeta[] = [];
+  try {
+    resumeCatalog = listAvailableResumes();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await logEvent("scout", "resume_catalog_error", { error: msg });
+  }
 
   // Group by source so we count sources properly.
   const seenSources = new Set<string>();
@@ -105,7 +117,7 @@ export async function runScan(): Promise<ScanResult> {
         result.matches.push({
           jobId: stored.id,
           job: { ...stored, score, reasons, status },
-          pickedResume: pickResume(stored),
+          pickedResume: pickResumeFilename(stored, resumeCatalog),
         });
       }
     }
@@ -139,14 +151,20 @@ export async function runScan(): Promise<ScanResult> {
 }
 
 /**
- * Pick the best-fit resume variant for a job.
+ * Pick the best-fit resume filename for a job.
  *
- * v1: simple keyword routing between main and main-ai variants.
- * v2 (planned): LLM-driven match against the JD with optional tailored generation.
+ * Delegates the heavy lifting to pickBestResume in ./resumes.ts so the same
+ * picker is reused by the scout_pick_resume MCP tool. Falls back to the
+ * generic main PDF if the catalog could not be loaded.
  */
-function pickResume(job: StoredJob): string {
-  const haystack = `${job.title} ${job.description ?? ""}`.toLowerCase();
-  const aiSignals = ["ai", "ml", "agent", "llm", "rag", "generative"];
-  const isAiRole = aiSignals.some((s) => haystack.includes(s));
-  return isAiRole ? "shaun-berkley-main-ai.pdf" : "shaun-berkley-main.pdf";
+function pickResumeFilename(job: StoredJob, catalog: ResumeMeta[]): string {
+  if (catalog.length === 0) {
+    return "shaun-berkley-main.pdf";
+  }
+  try {
+    const { pick } = pickBestResume(job.title, job.description, job.companyName, catalog);
+    return pick.resume.pdfFile;
+  } catch {
+    return "shaun-berkley-main.pdf";
+  }
 }

@@ -11,6 +11,7 @@ import { logEvent } from "../scout/db.js";
 import { classifyMessage, inferCompanies } from "./classifier.js";
 import { getHeader, getMessage, listMessages, parseFrom } from "./gmail.js";
 import { linkInboxMatches } from "./linker.js";
+import { notifyStageTransitions, type NotifyTransitionContext } from "./notifier.js";
 import type { InboxMatch, InboxPollResult } from "./types.js";
 
 const STATE_KEY = "inbox:last_polled_at";
@@ -94,6 +95,29 @@ export async function runInboxPoll(): Promise<InboxPollResult> {
         matchesLinked: linkResult.matched,
         proposedTransitions: linkResult.proposedTransitions.length,
       });
+
+      // Notify Shaun about proposed transitions. Notifier failures must not
+      // break the poll, so wrap in try/catch and log separately.
+      if (linkResult.proposedTransitions.length > 0 && process.env.JARVIS_NOTIFY !== "off") {
+        try {
+          const context: Record<string, NotifyTransitionContext> = {};
+          for (const m of result.matches) {
+            context[m.gmailId] = { subject: m.subject, snippet: m.snippet };
+          }
+          const { sent, failed } = await notifyStageTransitions(
+            linkResult.proposedTransitions,
+            context
+          );
+          await logEvent("inbox", "notify_summary", {
+            sent,
+            failed,
+            total: linkResult.proposedTransitions.length,
+          });
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          await logEvent("inbox", "notify_error", { error: errMsg });
+        }
+      }
     } catch (err) {
       result.errors.push(err instanceof Error ? err.message : String(err));
     }

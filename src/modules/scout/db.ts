@@ -90,6 +90,22 @@ export async function upsertJob(
 }
 
 /**
+ * Look up a single stored job by its primary id. Returns null if no row
+ * matches so callers can surface a clean error to the MCP client.
+ */
+export async function getJobById(jobId: string): Promise<StoredJob | null> {
+  const sb = getClient();
+  const { data, error } = await sb
+    .from("scout_jobs")
+    .select("*")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return rowToStoredJob(data);
+}
+
+/**
  * Update a job's score and reasons after scoring.
  */
 export async function setJobScore(

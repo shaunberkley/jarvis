@@ -62,3 +62,5 @@ primary_region = "lax"
 #   ZEP_API_KEY
 #   BROWSERBASE_API_KEY
 #   BROWSERBASE_PROJECT_ID
+#   LINKEDIN_CONTEXT_ID         (one-time: log into LinkedIn via a Browserbase
+#                                live session, copy the resulting context id)

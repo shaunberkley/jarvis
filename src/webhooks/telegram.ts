@@ -15,7 +15,8 @@
 
 import { Hono } from "hono";
 import { logEvent } from "../modules/scout/db.js";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { ApplicationStage } from "../modules/scout/types.js";
 
 interface TelegramUpdate {
   update_id: number;
@@ -53,11 +54,31 @@ async function handleCallback(cb: TelegramCallbackQuery): Promise<void> {
   // Acknowledge first so the spinner stops on the user's phone.
   await answerCallback(token, cb.id, parseToast(data));
 
-  // Callback data format: "scout:<action>:<jobId>"
-  const [namespace, action, jobId] = data.split(":");
+  const parts = data.split(":");
+  const namespace = parts[0];
 
-  if (namespace !== "scout" || !action || !jobId) {
-    await logEvent("telegram", "callback_unhandled", { data });
+  if (namespace === "scout") {
+    await handleScoutCallback(token, cb, parts);
+    return;
+  }
+
+  if (namespace === "inbox") {
+    await handleInboxCallback(token, cb, parts);
+    return;
+  }
+
+  await logEvent("telegram", "callback_unhandled", { data });
+}
+
+async function handleScoutCallback(
+  token: string,
+  cb: TelegramCallbackQuery,
+  parts: string[]
+): Promise<void> {
+  // Callback data format: "scout:<action>:<jobId>"
+  const [, action, jobId] = parts;
+  if (!action || !jobId) {
+    await logEvent("telegram", "callback_unhandled", { data: parts.join(":") });
     return;
   }
 
@@ -80,7 +101,91 @@ async function handleCallback(cb: TelegramCallbackQuery): Promise<void> {
       break;
 
     default:
-      await logEvent("telegram", "callback_unknown_action", { data });
+      await logEvent("telegram", "callback_unknown_action", { data: parts.join(":") });
+  }
+}
+
+async function handleInboxCallback(
+  token: string,
+  cb: TelegramCallbackQuery,
+  parts: string[]
+): Promise<void> {
+  // Callback data format: "inbox:transition:<action>:<applicationId>"
+  const [, kind, action, applicationId] = parts;
+  if (kind !== "transition" || !action || !applicationId) {
+    await logEvent("telegram", "callback_unhandled", { data: parts.join(":") });
+    return;
+  }
+
+  switch (action) {
+    case "accept": {
+      const proposedStage = await getProposedStageFor(applicationId);
+      if (!proposedStage) {
+        await logEvent(
+          "inbox",
+          "stage_accept_failed",
+          {
+            applicationId,
+            userId: cb.from.id,
+            reason: "no_proposed_stage_event_found",
+          },
+          [applicationId]
+        );
+        await editMessageNote(token, cb.message, "⚠️ Could not find proposed stage");
+        return;
+      }
+      try {
+        await updateApplicationStage(applicationId, proposedStage);
+        await logEvent(
+          "inbox",
+          "stage_accepted",
+          {
+            applicationId,
+            stage: proposedStage,
+            userId: cb.from.id,
+          },
+          [applicationId]
+        );
+        await editMessageNote(token, cb.message, `✅ Accepted: ${proposedStage}`);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        await logEvent(
+          "inbox",
+          "stage_accept_failed",
+          { applicationId, userId: cb.from.id, error: errMsg },
+          [applicationId]
+        );
+        await editMessageNote(token, cb.message, "⚠️ Update failed");
+      }
+      break;
+    }
+
+    case "reject":
+      await logEvent(
+        "inbox",
+        "stage_rejected",
+        { applicationId, userId: cb.from.id },
+        [applicationId]
+      );
+      await editMessageNote(token, cb.message, "❌ Rejected");
+      break;
+
+    case "edit":
+      await logEvent(
+        "inbox",
+        "stage_edit_requested",
+        {
+          applicationId,
+          userId: cb.from.id,
+          note: "manual review needed",
+        },
+        [applicationId]
+      );
+      await editMessageNote(token, cb.message, "✏️ Manual review queued");
+      break;
+
+    default:
+      await logEvent("telegram", "callback_unknown_action", { data: parts.join(":") });
   }
 }
 
@@ -88,6 +193,9 @@ function parseToast(data: string): string {
   if (data.includes(":apply:")) return "Queued for application";
   if (data.includes(":skip:")) return "Skipped";
   if (data.includes(":snooze:")) return "Snoozed";
+  if (data.includes("inbox:transition:accept:")) return "Accepted";
+  if (data.includes("inbox:transition:reject:")) return "Rejected";
+  if (data.includes("inbox:transition:edit:")) return "Manual review queued";
   return "Got it";
 }
 
@@ -121,10 +229,52 @@ async function editMessageNote(
 }
 
 async function markJobStatus(jobId: string, status: string): Promise<void> {
+  const sb = getDb();
+  const { error } = await sb.from("scout_jobs").update({ status }).eq("id", jobId);
+  if (error) throw error;
+}
+
+/**
+ * Look up the proposed stage for an application from the most recent
+ * stage_transition_proposed event the inbox linker emitted. We query by
+ * source + type and filter on related[] containing the application id; the
+ * payload carries the proposedStage value.
+ */
+async function getProposedStageFor(applicationId: string): Promise<ApplicationStage | null> {
+  const sb = getDb();
+  const { data, error } = await sb
+    .from("events")
+    .select("payload")
+    .eq("source", "inbox")
+    .eq("type", "stage_transition_proposed")
+    .contains("related", [applicationId])
+    .order("ts", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  const payload = data.payload as { proposedStage?: string } | null;
+  const stage = payload?.proposedStage;
+  return stage ? (stage as ApplicationStage) : null;
+}
+
+async function updateApplicationStage(
+  applicationId: string,
+  stage: ApplicationStage
+): Promise<void> {
+  const sb = getDb();
+  const { error } = await sb
+    .from("scout_applications")
+    .update({ current_stage: stage, updated_at: new Date().toISOString() })
+    .eq("id", applicationId);
+  if (error) throw error;
+}
+
+let cachedDb: SupabaseClient | null = null;
+function getDb(): SupabaseClient {
+  if (cachedDb) return cachedDb;
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("SUPABASE_URL/SERVICE_ROLE_KEY required");
-  const sb = createClient(url, key, { auth: { persistSession: false } });
-  const { error } = await sb.from("scout_jobs").update({ status }).eq("id", jobId);
-  if (error) throw error;
+  cachedDb = createClient(url, key, { auth: { persistSession: false } });
+  return cachedDb;
 }

@@ -6,13 +6,14 @@
 import { ashbyAdapter } from "./ashby.js";
 import { greenhouseAdapter } from "./greenhouse.js";
 import { leverAdapter } from "./lever.js";
+import { linkedinAdapter } from "./linkedin.js";
 import type { Source, SourceAdapter } from "../types.js";
 
 const registry: Record<Source, SourceAdapter | undefined> = {
   ashby: ashbyAdapter,
   greenhouse: greenhouseAdapter,
   lever: leverAdapter,
-  linkedin: undefined,    // planned: requires Browserbase + logged-in session
+  linkedin: linkedinAdapter,
   workday: undefined,     // planned: per-company custom integrations
   yc: undefined,          // planned: Work at a Startup
   wellfound: undefined,   // planned: AngelList successor

@@ -4,7 +4,14 @@
  */
 
 export { runScan, type ScanResult } from "./scanner.js";
-export { addBlacklist, getCriteria, getWatchlist } from "./db.js";
+export { addBlacklist, getCriteria, getJobById, getWatchlist } from "./db.js";
+export {
+  listAvailableResumes,
+  pickBestResume,
+  type ResumeMeta,
+  type ResumePick,
+  type ResumePickResult,
+} from "./resumes.js";
 export { scoreJob, isHardSkip } from "./scoring.js";
 export type {
   NormalizedJob,

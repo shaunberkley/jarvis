@@ -22,7 +22,10 @@ import {
 import {
   addBlacklist,
   getCriteria,
+  getJobById,
   getWatchlist,
+  listAvailableResumes,
+  pickBestResume,
   runScan,
 } from "../modules/scout/index.js";
 
@@ -177,6 +180,21 @@ const tools = [
       required: ["company"],
     },
   },
+  {
+    name: "scout_pick_resume",
+    description:
+      "Pick the best resume variant for a given Scout job using the heuristic catalog picker. Returns the top pick plus ranked alternatives with rationale so the Claude Code session can override based on JD nuance.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        jobId: {
+          type: "string",
+          description: "scout_jobs.id of the job to pick a resume for.",
+        },
+      },
+      required: ["jobId"],
+    },
+  },
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -317,6 +335,58 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [
           { type: "text", text: `Blacklisted ${company}${reason ? ` (${reason})` : ""}.` },
+        ],
+      };
+    }
+
+    case "scout_pick_resume": {
+      const jobId = String(args?.jobId ?? "");
+      if (!jobId) throw new Error("jobId is required");
+      const job = await getJobById(jobId);
+      if (!job) throw new Error(`No job found with id ${jobId}`);
+      const catalog = listAvailableResumes();
+      const { pick, alternatives } = pickBestResume(
+        job.title,
+        job.description,
+        job.companyName,
+        catalog
+      );
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                jobId: job.id,
+                job: {
+                  title: job.title,
+                  company: job.companyName,
+                  url: job.url,
+                  source: job.source,
+                },
+                pick: {
+                  pdfFile: pick.resume.pdfFile,
+                  pdfPath: pick.resume.pdfPath,
+                  markdownFile: pick.resume.markdownFile,
+                  variant: pick.resume.variant,
+                  companyTarget: pick.resume.companyTarget,
+                  score: pick.score,
+                  rationale: pick.rationale,
+                },
+                alternatives: alternatives.map((alt) => ({
+                  pdfFile: alt.resume.pdfFile,
+                  markdownFile: alt.resume.markdownFile,
+                  variant: alt.resume.variant,
+                  companyTarget: alt.resume.companyTarget,
+                  score: alt.score,
+                  rationale: alt.rationale,
+                })),
+                catalogSize: catalog.length,
+              },
+              null,
+              2
+            ),
+          },
         ],
       };
     }
